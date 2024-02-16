@@ -3,59 +3,70 @@
 import { stringify } from "javascript-stringify";
 import { useCallback, useState, useEffect } from "react";
 import { useKey } from "react-use";
-import lodash from "lodash";
+import lodash, { cloneDeep, isEmpty } from "lodash";
 import { consoleEvent, devConsole } from "./console";
+import { v4 as uuid } from "uuid";
+import { CodeBuilder } from "./builder";
+import "./compiler";
 
 type PkgWindow = Window & {
   lodash: typeof lodash;
+  stringify: typeof stringify;
 };
 
 declare let window: PkgWindow;
 
 window.lodash = lodash;
+window.stringify = stringify;
 
 type Command = {
+  id: string;
   input: string;
-  output: string;
+  output: string[];
 };
 
 export default function Home() {
   const [code, setCode] = useState("");
-  const [commands, setCommands] = useState<Array<Command>>([]);
+  const [stdout, addOutput] = useState<string[]>([]);
+
+  const writeToStdout = useCallback((output?: string) => {
+    addOutput((stdout) => stdout.concat([output || "undefined"]));
+  }, []);
 
   const execute = useCallback(() => {
-    eval(`const console = ${stringify(devConsole)}; ` + code);
+    writeToStdout(code);
+
+    const result = eval(
+      new CodeBuilder()
+        .withCodeId(uuid())
+        .withDevConsole()
+        .withErrorHandling(code)
+        .getCode()
+    );
+
+    writeToStdout(stringify(result));
     setCode("");
-  }, [code]);
+  }, [code, writeToStdout]);
 
   useKey("Enter", execute, undefined, [code]);
 
   useEffect(() => {
     const handler = (e: CustomEvent<unknown>) => {
-      setCommands((commands) => [
-        ...commands,
-        {
-          input: code,
-          output: stringify(e.detail, null, 2) || "",
-        },
-      ]);
+      writeToStdout(stringify(e.detail));
     };
 
     window.addEventListener(consoleEvent, handler);
     return () => window.removeEventListener(consoleEvent, handler);
-  }, [code]);
+  }, [code, writeToStdout]);
 
   return (
     <main className="p-10 font-mono">
       <h1 className="text-4xl">pkground</h1>
-      <div>
-        {commands.map((command, idx) => (
-          <div key={idx}>
-            <div className="flex gap-2 my-2">
-              <span>#</span>
-              <div>{command.input}</div>
-            </div>
-            <div>{command.output}</div>
+      <div className="my-2">
+        {stdout.map((output, idx) => (
+          <div className="flex gap-2 mb-2" key={idx}>
+            <span>&gt;</span>
+            <div>{output}</div>
           </div>
         ))}
       </div>
